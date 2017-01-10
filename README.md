@@ -1,2 +1,1 @@
-# phabricator-branch-source-plugin
-Phabricator Branch Source Plugin
+# Phabricator Branch Source Plugin
