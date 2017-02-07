@@ -56,12 +56,17 @@ public class PhabricatorSCMSource extends SCMSource {
     /**
      * Credentials used to access the Phabricator API.
      */
-    private String credentialsId;
+    private String phabCredentialsId;
 
     /**
      * Repository PHID
      */
     private String repository;
+
+    /**
+     * Credentials used to access the repository.
+     */
+    private String repoCredentialsId;
 
     private static final Logger LOGGER = Logger.getLogger(PhabricatorSCMSource.class.getName());
 
@@ -72,17 +77,26 @@ public class PhabricatorSCMSource extends SCMSource {
     }
 
     @CheckForNull
-    public String getCredentialsId() {
-        return credentialsId;
+    public String getPhabCredentialsId() {
+        return phabCredentialsId;
     }
 
     @DataBoundSetter
-    public void setCredentialsId(String credentialsId) {
-        this.credentialsId = Util.fixEmpty(credentialsId);
+    public void setPhabCredentialsId(String phabCredentialsId) {
+        this.phabCredentialsId = Util.fixEmpty(phabCredentialsId);
     }
 
     public String getRepository() {
         return repository;
+    }
+
+    public String getRepoCredentialsId() {
+        return repoCredentialsId;
+    }
+
+    @DataBoundSetter
+    public void setRepoCredentialsId(String repoCredentialsId) {
+        this.repoCredentialsId = Util.fixEmpty(repoCredentialsId);
     }
 
     @DataBoundSetter
@@ -101,8 +115,7 @@ public class PhabricatorSCMSource extends SCMSource {
 
     @Override
     protected void retrieve(@CheckForNull SCMSourceCriteria criteria, @NonNull SCMHeadObserver observer, @CheckForNull SCMHeadEvent<?> event, @NonNull TaskListener listener) throws IOException, InterruptedException {
-
-        ConduitCredentials credentials = ConduitCredentialsDescriptor.getCredentials(null, credentialsId);
+        ConduitCredentials credentials = ConduitCredentialsDescriptor.getCredentials(null, phabCredentialsId);
         ConduitAPIClient client = new ConduitAPIClient(credentials.getUrl(), credentials.getToken().getPlainText());
 
         listener.getLogger().format("Connecting to %s with credentials%n", credentials.getUrl());
@@ -309,11 +322,9 @@ public class PhabricatorSCMSource extends SCMSource {
 
             ArrayList<GitSCMExtension> extensions = new ArrayList<>();
             extensions.add(new BuildChooserSetting(buildChooser));
-//            return new GitSCM(h.getRepoUrl());
             return new GitSCM(
                     getGitRemoteConfigs(h),
-                    null,
-//                    Collections.singletonList(new BranchSpec("refs/heads/"+h.getName())),
+                    Collections.singletonList(new BranchSpec("+refs/heads/*:refs/remotes/origin/*")),
                     false, Collections.<SubmoduleConfig>emptyList(),
                     null, null,
                     extensions);
@@ -327,14 +338,14 @@ public class PhabricatorSCMSource extends SCMSource {
             DifferentialSCMHead h = (DifferentialSCMHead) head;
 
             List<UserRemoteConfig> result = new ArrayList<UserRemoteConfig>();
-            result.add(new UserRemoteConfig(h.getRepoUrl(), "origin", "+refs/tags/phabricator/*:refs/remotes/origin/tags/phabricator/*", credentialsId));
+            result.add(new UserRemoteConfig(h.getRepoUrl(), "origin", "+refs/tags/phabricator/*:refs/remotes/origin/tags/phabricator/*", repoCredentialsId));
             return result;
         } else if(head instanceof BranchSCMHead) {
             List<UserRemoteConfig> result = new ArrayList<UserRemoteConfig>();
             BranchSCMHead h = (BranchSCMHead) head;
             String refspec = "+refs/heads/" + h.getName() + ":refs/remotes/origin/" + h.getName();
             String refspec1 = "+refs/heads/*:refs/remotes/origin/*";
-            result.add(new UserRemoteConfig(h.getRepoUrl(), null, null, credentialsId));
+            result.add(new UserRemoteConfig(h.getRepoUrl(), "origin", refspec1, repoCredentialsId));
             return result;
         }
         throw new IllegalArgumentException("Can't handle this ");
@@ -352,9 +363,9 @@ public class PhabricatorSCMSource extends SCMSource {
             return "Phabricator";
         }
 
-        public ListBoxModel doFillCredentialsIdItems(@AncestorInPath SCMSourceOwner context) {
+        public ListBoxModel doFillPhabCredentialsIdItems(@AncestorInPath SCMSourceOwner context) {
             StandardListBoxModel result = new StandardListBoxModel();
-//            result.withEmptySelection();
+            result.withEmptySelection();
             result.withMatching(
                     CredentialsMatchers.anyOf(CredentialsMatchers.instanceOf(ConduitCredentials.class)),
                     CredentialsProvider.lookupCredentials(StandardCredentials.class, context)
@@ -362,14 +373,14 @@ public class PhabricatorSCMSource extends SCMSource {
             return result;
         }
 
-        public ListBoxModel doFillRepositoryItems(@AncestorInPath SCMSourceOwner context, @QueryParameter String credentialsId) {
+        public ListBoxModel doFillRepositoryItems(@AncestorInPath SCMSourceOwner context, @QueryParameter String phabCredentialsId) {
             StandardListBoxModel result = new StandardListBoxModel();
-            credentialsId = Util.fixEmpty(credentialsId);
-            if(credentialsId == null) {
+            phabCredentialsId = Util.fixEmpty(phabCredentialsId);
+            if(phabCredentialsId == null) {
                 return result.withEmptySelection();
             }
 
-            ConduitCredentials credentials = ConduitCredentialsDescriptor.getCredentials(null, credentialsId);
+            ConduitCredentials credentials = ConduitCredentialsDescriptor.getCredentials(null, phabCredentialsId);
             ConduitAPIClient client = new ConduitAPIClient(credentials.getUrl(), credentials.getToken().getPlainText());
             try {
                 DiffusionClient diffusionClient = new DiffusionClient(client);
@@ -385,5 +396,17 @@ public class PhabricatorSCMSource extends SCMSource {
 
             return result;
         }
+
+        public ListBoxModel doFillRepoCredentialsIdItems(@AncestorInPath SCMSourceOwner context) {
+            StandardListBoxModel result = new StandardListBoxModel();
+            result.withEmptySelection();
+            result.withMatching(
+                    CredentialsMatchers.anyOf(CredentialsMatchers.instanceOf(StandardCredentials.class)),
+                    CredentialsProvider.lookupCredentials(StandardCredentials.class, context)
+            );
+
+            return result;
+        }
+
     }
 }
