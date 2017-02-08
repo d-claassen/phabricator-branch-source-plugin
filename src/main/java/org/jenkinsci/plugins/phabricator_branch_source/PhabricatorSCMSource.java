@@ -343,9 +343,8 @@ public class PhabricatorSCMSource extends SCMSource {
         } else if(head instanceof BranchSCMHead) {
             List<UserRemoteConfig> result = new ArrayList<UserRemoteConfig>();
             BranchSCMHead h = (BranchSCMHead) head;
-            String refspec = "+refs/heads/" + h.getName() + ":refs/remotes/origin/" + h.getName();
-            String refspec1 = "+refs/heads/*:refs/remotes/origin/*";
-            result.add(new UserRemoteConfig(h.getRepoUrl(), "origin", refspec1, repoCredentialsId));
+            String refspec = "+refs/heads/" + h.getName();
+            result.add(new UserRemoteConfig(h.getRepoUrl(), "origin", refspec, repoCredentialsId));
             return result;
         }
         throw new IllegalArgumentException("Can't handle this ");
