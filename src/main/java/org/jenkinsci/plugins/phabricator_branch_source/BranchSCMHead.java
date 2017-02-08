@@ -5,6 +5,7 @@ import jenkins.scm.api.SCMHead;
 
 /**
  * Head corresponding to a branch.
+ *
  * @since FIXME
  */
 public class BranchSCMHead extends SCMHead {

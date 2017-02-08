@@ -15,7 +15,7 @@ public class BranchJobFilter extends AbstractBranchJobFilter {
 
     @Override
     protected boolean shouldShow(SCMHead head) {
-        return head instanceof DifferentialSCMHead && ((DifferentialSCMHead) head).getRevisionId() == null;
+        return head instanceof BranchSCMHead;
     }
 
     @Extension
