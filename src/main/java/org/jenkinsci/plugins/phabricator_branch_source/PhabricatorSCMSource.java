@@ -20,6 +20,7 @@ import hudson.plugins.git.extensions.impl.ChangelogToBranch;
 import hudson.plugins.git.util.BuildChooser;
 import hudson.plugins.git.util.DefaultBuildChooser;
 import hudson.scm.SCM;
+import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 import jenkins.plugins.git.AbstractGitSCMSource;
 import jenkins.scm.api.*;
@@ -370,6 +371,26 @@ public class PhabricatorSCMSource extends SCMSource {
                     CredentialsProvider.lookupCredentials(StandardCredentials.class, context)
                 );
             return result;
+        }
+
+        public FormValidation doCheckPhabCredentialsId(@QueryParameter String value) {
+            if (value.isEmpty()) {
+                return FormValidation.warning("Credentials are required to retrieve possible Phabricator repositories");
+            } else {
+                ConduitCredentials credentials = ConduitCredentialsDescriptor.getCredentials(null, value);
+                if(credentials.getUrl().isEmpty()) {
+                    return FormValidation.warning("Credentials are missing url");
+                }
+
+                ConduitAPIClient client = new ConduitAPIClient(credentials.getUrl(), credentials.getToken().getPlainText());
+                try {
+                    client.perform("conduit.ping", new JSONObject());
+                    return FormValidation.ok();
+                }
+                catch( IOException | ConduitAPIException e) {
+                    return FormValidation.warning("Could not connect to "+credentials.getUrl());
+                }
+            }
         }
 
         public ListBoxModel doFillRepositoryItems(@AncestorInPath SCMSourceOwner context, @QueryParameter String phabCredentialsId) {
