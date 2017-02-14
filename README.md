@@ -5,7 +5,7 @@
 The Phabricator Branch Source plugin allows you to create a new project based on a repository that is available in a
 [Phabricator](https://www.phacility.com/phabricator/) instance. This plugin scans the repository for all branches
 and turns them into Pipeline jobs. To define a Pipeline job, you create a Pipeline script in a `Jenkinsfile` in the root
-directory of the project or branch. Each repository becomes a folder in Jenkins with each branch with a `Jenkinsfile` as
+directory of the project or branch. The repository becomes a folder in Jenkins with each branch with a `Jenkinsfile` as
 a different job.
 
 ### Differential Revisions
@@ -21,7 +21,9 @@ their changes staged in a Staging Area. Each revision will be added to Jenkins a
 This plugin adds a new type of Multibranch Project. To use this plugin, you must have a running Phabricator install,
 credentials with Phabricator API access and credentials that allow access to the repository. Setup your job as follows:
 
-Go to Jenkins > New Item > Multibranch Pipeline. Next is Add source. Choose the Phabricator source.
+Go to Jenkins > New Item > Multibranch Pipeline.
+
+On the next page click the button Add source. Choose the Phabricator source.
 
 Select or add new Phabricator Credentials. The repositories will load in the next selectbox. Select a repository and
 configure the Repository Credentials.
