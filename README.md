@@ -3,7 +3,7 @@
 ## Introduction
 
 The Phabricator Branch Source plugin allows you to create a new project based on a repository that is available in a
-[[ https://www.phacility.com/phabricator/ | Phabricator ]] instance. This plugin scans the repository for all branches
+[Phabricator](https://www.phacility.com/phabricator/) instance. This plugin scans the repository for all branches
 and turns them into Pipeline jobs. To define a Pipeline job, you create a Pipeline script in a `Jenkinsfile` in the root
 directory of the project or branch. Each repository becomes a folder in Jenkins with each branch with a `Jenkinsfile` as
 a different job.
@@ -11,7 +11,7 @@ a different job.
 ### Differential Revisions
 
 The Phabricator Branch Source plugin is able to build
-[[ https://www.phacility.com/phabricator/differential/ | Differential revisions ]] containing a `Jenkinsfile` and with
+[Differential revisions](https://www.phacility.com/phabricator/differential/) containing a `Jenkinsfile` and with
 their changes staged in a Staging Area. Each revision will be added to Jenkins as a unique job.
 
 **This does not report the status of a build back to Phabricator.**
