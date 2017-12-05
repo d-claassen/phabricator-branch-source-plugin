@@ -7,10 +7,10 @@
         <version>2.19</version>
     </parent>
 
-    <artifactId>phabricator-branch-source</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <artifactId>phabricator-scm</artifactId>
+    <version>2.0-SNAPSHOT</version>
     <packaging>hpi</packaging>
-    <name>Phabricator Branch Source Plugin</name>
+    <name>Phabricator SCM</name>
     <url />
     <description>Discover and build Phabricator Differential Revisions and send status notifications with the build result.</description>
 
