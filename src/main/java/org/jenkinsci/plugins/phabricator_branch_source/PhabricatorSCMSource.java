@@ -24,28 +24,32 @@ import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 import jenkins.plugins.git.AbstractGitSCMSource;
 import jenkins.scm.api.*;
+import jenkins.scm.api.trait.SCMSourceRequest;
+import jenkins.scm.api.trait.SCMSourceTrait;
+import jenkins.scm.api.trait.SCMSourceTraitDescriptor;
+import jenkins.scm.impl.form.NamedArrayList;
+import jenkins.scm.impl.trait.Discovery;
+import jenkins.scm.impl.trait.Selection;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
 import org.jenkinsci.plugins.phabricator_branch_source.Conduit.Diffusion;
 import org.jenkinsci.plugins.phabricator_branch_source.Conduit.DiffusionClient;
+import org.jenkinsci.plugins.phabricator_branch_source.Conduit.PhabricatorBranch;
 import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
 import org.kohsuke.stapler.QueryParameter;
 
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
 import java.util.logging.Logger;
 
 /**
  * SCM source implementation for Phabricator.
  *
- * It provides a way to discover/retrieve branches and Differential Revisions through the Phabricator API.
- * This might potentially be faster than the plain GIT SCM source implementation.
+ * It provides a way to discover and retrieve branches and Differential Revisions through the Phabricator API.
  */
 public class PhabricatorSCMSource extends SCMSource {
 
@@ -70,6 +74,12 @@ public class PhabricatorSCMSource extends SCMSource {
     private String repoCredentialsId;
 
     private static final Logger LOGGER = Logger.getLogger(PhabricatorSCMSource.class.getName());
+
+    /**
+     * Using traits is not required but it does make your implementation easier for others to extend.
+     */
+    @NonNull
+    private List<SCMSourceTrait> traits;
 
     @DataBoundConstructor
     public PhabricatorSCMSource(String id, String repository) {
@@ -114,16 +124,148 @@ public class PhabricatorSCMSource extends SCMSource {
         return phabricatorServerUrl;
     }
 
+    @NonNull
+    public List<SCMSourceTrait> getTraits() {
+        return Collections.unmodifiableList(traits);
+    }
+
+    @DataBoundSetter
+    public void setTraits(@CheckForNull List<SCMSourceTrait> traits) {
+        this.traits = new ArrayList<>(Util.fixNull(traits));
+    }
+
+    public ConduitCredentials credentials() {
+        return ConduitCredentialsDescriptor.getCredentials(null, phabCredentialsId);
+    }
+
     @Override
-    protected void retrieve(@CheckForNull SCMSourceCriteria criteria, @NonNull SCMHeadObserver observer, @CheckForNull SCMHeadEvent<?> event, @NonNull TaskListener listener) throws IOException, InterruptedException {
-        ConduitCredentials credentials = ConduitCredentialsDescriptor.getCredentials(null, phabCredentialsId);
-        ConduitAPIClient client = new ConduitAPIClient(credentials.getUrl(), credentials.getToken().getPlainText());
+    protected void retrieve(@CheckForNull SCMSourceCriteria criteria,
+                            @NonNull SCMHeadObserver observer,
+                            @CheckForNull SCMHeadEvent<?> event,
+                            @NonNull TaskListener listener)
+            throws IOException, InterruptedException {
+        listener.getLogger().format("Start retrieving now%n");
+        try(PhabricatorSCMSourceRequest request = new PhabricatorSCMSourceContext(criteria, observer)
+                                .withTraits(traits)
+                                .newRequest(this, listener)) {
 
-        listener.getLogger().format("Connecting to %s with credentials%n", credentials.getUrl());
+            listener.getLogger().format("Connecting to %s with credentials%n", credentials().getUrl());
 
-        retrieveBranches(client, observer, listener);
+            // populate the request with its data sources
+//            if(request.isFetchRevisions()) {
+//                request.setRevisions(new LazyIterable<PhabricatorRevision>() {
+//                    @Override
+//                    protected Iterable<PhabricatorRevision> create() {
+//                        try {
+//                            return (Iterable<PhabricatorRevision>) buildClient().getRevisions();
+//                        } catch(IOException | InterruptedException e) {
+//                            throw new PhabricatorSCMSource.WrappedException(e);
+//                        }
+//                    }
+//                });
+//            }
+            if(request.isFetchBranches()) {
+                request.setBranches(new LazyIterable<PhabricatorBranch>() {
+                    @Override
+                    protected Iterable<PhabricatorBranch> create() {
+                        try {
+                            DiffusionClient diffusionClient = new DiffusionClient(buildClient());
+                            return diffusionClient.getBranches(repository);
+                        } catch (ConduitAPIException | IOException e) {
+                            throw new PhabricatorSCMSource.WrappedException(e);
+                        }
+                    }
+                });
+            }
 
-        retrieveDifferentialRevisions(client, observer, listener);
+            // now server the request
+            if(request.isFetchBranches() && !request.isComplete()) {
+                retrieveBranches(request);
+            }
+            if(request.isFetchRevisions() && !request.isComplete()) {
+//                retrieveRevisions(request);
+            }
+        } catch (WrappedException e) {
+            e.unwrap();
+        }
+
+
+//        ConduitAPIClient client = buildClient();
+//        retrieveBranches(client, observer, listener);
+//
+//        retrieveDifferentialRevisions(client, observer, listener);
+    }
+
+    private ConduitAPIClient buildClient() {
+        ConduitCredentials credentials = credentials();
+        return new ConduitAPIClient(credentials.getUrl(), credentials.getToken().getPlainText());
+    }
+
+    private void retrieveBranches(final PhabricatorSCMSourceRequest request) throws IOException, InterruptedException {
+        String fullName = repository;
+        request.listener().getLogger().println("Looking up " + fullName + " for branches");
+
+        final ConduitAPIClient client = buildClient();
+
+        try {
+            DiffusionClient diffusionClient = new DiffusionClient(client);
+            Diffusion diffusion = diffusionClient.getRepository(repository);
+            String url = diffusion.getPrimaryUrl();
+
+            request.listener().getLogger().format("Repo url: %s.%n", url);
+            request.listener().getLogger().format("Looking up all open branches.%n");
+
+            JSONObject params = new JSONObject();
+            params.element("closed", false);
+            params.element("repository", repository);
+
+            JSONObject branchesResponse = client.perform("diffusion.branchquery", params);
+            if(!branchesResponse.has("result")) {
+                request.listener().getLogger().format("Could not find any branches.%n");
+                return;
+            }
+
+            JSONArray openBranches = branchesResponse.getJSONArray("result");
+
+            int nrOpenBranches = openBranches.size();
+            request.listener().getLogger().format("Done. Found %s open branches.%n", nrOpenBranches);
+            Integer i = 0;
+            for (; i < nrOpenBranches; i++) {
+                String branchName = openBranches.getJSONObject(i).getString("shortName");
+//                String branchRef = openBranches.getJSONObject(i).getJSONObject("rawFields").getString("refname");
+                final String commitHash = openBranches.getJSONObject(i).getString("commitIdentifier");
+
+                request.listener().getLogger().format("Observe branch %s.%n", branchName);
+
+
+                SCMHead head = new BranchSCMHead(branchName, url);
+                if(request.process(head,
+                        new SCMSourceRequest.IntermediateLambda<String>() {
+                            @Nullable
+                            @Override
+                            public String create() {
+                                return commitHash;
+                            }
+                        },
+                        new PhabricatorProbeFactory(client, request),
+                        new PhabricatorRevisionFactory(),
+                        new CriteriaWitness(request)
+                )) {
+                    request.listener().getLogger().format("%n  %d branches were processed (query completed)%n", nrOpenBranches);
+                    break;
+                }
+
+//                SCMRevision revision = new AbstractGitSCMSource.SCMRevisionImpl(head, commitHash);
+
+//                observe(observer, request.listener(), head, revision);
+//                observe(observer, listener, repositoryUrl, branchName, branchRef, "", 0);
+            }
+            request.listener().getLogger().format("%n  %d branches were processed%n", i);
+
+        } catch(ConduitAPIException e) {
+            request.listener().getLogger().format("Error: %s%n", e.getMessage());
+        }
+
     }
 
     private void retrieveBranches(ConduitAPIClient client, @NonNull SCMHeadObserver observer, @NonNull TaskListener listener ) throws InterruptedException {
@@ -275,13 +417,13 @@ public class PhabricatorSCMSource extends SCMSource {
         listener.getLogger().format("%nDone examining repository%n");
     }
 
-    private void observe(SCMHeadObserver observer, TaskListener listener, SCMHead head, SCMRevision revision) {
+    private void observe(SCMHeadObserver observer, TaskListener listener, SCMHead head, SCMRevision revision) throws IOException, InterruptedException {
         listener.getLogger().format("%nStart observing now...%n");
 
         observer.observe(head, revision);
     }
 
-    private void observe(SCMHeadObserver observer, TaskListener listener, String repositoryUrl, String branchName, String hash, String baseBranchName, @Nullable Integer revisionId) {
+    private void observe(SCMHeadObserver observer, TaskListener listener, String repositoryUrl, String branchName, String hash, String baseBranchName, @Nullable Integer revisionId) throws IOException, InterruptedException {
         String name = revisionId == null ? branchName : "D" + revisionId;
 
         listener.getLogger().format("Repo url %s%n", repositoryUrl);
@@ -428,5 +570,130 @@ public class PhabricatorSCMSource extends SCMSource {
             return result;
         }
 
+
+        public List<NamedArrayList<? extends SCMSourceTraitDescriptor>> getTraitsDescriptorLists() {
+            List<SCMSourceTraitDescriptor> all = new ArrayList<>();
+            // all that are applicable to our context
+            all.addAll(SCMSourceTrait._for(this, PhabricatorSCMSourceContext.class, null));
+            // all that are applicable to our builders
+//            all.addAll(SCMSourceTrait._for(this, null, BitbucketGitSCMBuilder.class));
+//            all.addAll(SCMSourceTrait._for(this, null, BitbucketHgSCMBuilder.class));
+//            Set<SCMSourceTraitDescriptor> dedup = new HashSet<>();
+//            for (Iterator<SCMSourceTraitDescriptor> iterator = all.iterator(); iterator.hasNext(); ) {
+//                SCMSourceTraitDescriptor d = iterator.next();
+//                if (dedup.contains(d)
+//                        || d instanceof MercurialBrowserSCMSourceTrait.DescriptorImpl
+//                        || d instanceof GitBrowserSCMSourceTrait.DescriptorImpl) {
+                    // remove any we have seen already and ban the browser configuration as it will always be bitbucket
+//                    iterator.remove();
+//                } else {
+//                    dedup.add(d);
+//                }
+//            }
+            List<NamedArrayList<? extends SCMSourceTraitDescriptor>> result = new ArrayList<>();
+            NamedArrayList.select(all, "Within repository", NamedArrayList
+                            .anyOf(NamedArrayList.withAnnotation(Discovery.class),
+                                    NamedArrayList.withAnnotation(Selection.class)),
+                    true, result);
+            int insertionPoint = result.size();
+            NamedArrayList.select(all, "Git", new NamedArrayList.Predicate<SCMSourceTraitDescriptor>() {
+                @Override
+                public boolean test(SCMSourceTraitDescriptor d) {
+                    return GitSCM.class.isAssignableFrom(d.getScmClass());
+                }
+            }, true, result);
+//            NamedArrayList.select(all, "Mercurial", new NamedArrayList.Predicate<SCMSourceTraitDescriptor>() {
+//                @Override
+//                public boolean test(SCMSourceTraitDescriptor d) {
+//                    return MercurialSCM.class.isAssignableFrom(d.getScmClass());
+//                }
+//            }, true, result);
+            NamedArrayList.select(all, "General", null, true, result, insertionPoint);
+            return result;
+        }
+    }
+
+    private static class WrappedException extends RuntimeException {
+        public WrappedException(Throwable cause) {
+            super(cause);
+        }
+
+        public void unwrap() throws IOException, InterruptedException {
+            Throwable cause = getCause();
+            if (cause instanceof IOException) {
+                throw (IOException) cause;
+            }
+            if (cause instanceof InterruptedException) {
+                throw (InterruptedException) cause;
+            }
+            if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+            }
+            throw this;
+        }
+    }
+
+    private static class CriteriaWitness implements SCMSourceRequest.Witness {
+        private final PhabricatorSCMSourceRequest request;
+
+        public CriteriaWitness(PhabricatorSCMSourceRequest request) {
+            this.request = request;
+        }
+
+        @Override
+        public void record(@NonNull SCMHead scmHead, SCMRevision revision, boolean isMatch) {
+            if (revision == null) {
+                request.listener().getLogger().println("    Skipped");
+            } else {
+                if (isMatch) {
+                    request.listener().getLogger().println("    Met criteria");
+                } else {
+                    request.listener().getLogger().println("    Does not meet criteria");
+                    return;
+                }
+
+            }
+        }
+    }
+
+    private class PhabricatorRevisionFactory implements SCMSourceRequest.LazyRevisionLambda<SCMHead, SCMRevision, String> {
+        @Nonnull
+        @Override
+        public SCMRevision create(@Nonnull SCMHead head, @Nullable String hash) throws IOException, InterruptedException {
+            return new AbstractGitSCMSource.SCMRevisionImpl(head, hash);
+        }
+    }
+
+    private static class PhabricatorProbeFactory implements SCMSourceRequest.ProbeLambda<SCMHead, String> {
+        private final ConduitAPIClient client;
+        private final PhabricatorSCMSourceRequest request;
+
+        public PhabricatorProbeFactory(ConduitAPIClient client, PhabricatorSCMSourceRequest request) {
+            this.client = client;
+            this.request = request;
+        }
+
+        @NonNull
+        @Override
+        public SCMSourceCriteria.Probe create(@NonNull final SCMHead head,
+                                              @Nullable String hash)
+                                throws IOException, InterruptedException {
+            return new SCMSourceCriteria.Probe() {
+                @Override
+                public String name() {
+                     return head.getName();
+                }
+
+                @Override
+                public long lastModified() {
+                    return 0;
+                }
+
+                @Override
+                public boolean exists(@NonNull String s) throws IOException {
+                    return true;
+                }
+            };
+        }
     }
 }

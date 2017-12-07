@@ -2,9 +2,14 @@ package org.jenkinsci.plugins.phabricator_branch_source.Conduit;
 
 import com.uber.jenkins.phabricator.conduit.ConduitAPIClient;
 import com.uber.jenkins.phabricator.conduit.ConduitAPIException;
+import jenkins.scm.api.SCMHead;
+import jenkins.scm.api.trait.SCMSourceRequest;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
+import org.jenkinsci.plugins.phabricator_branch_source.BranchSCMHead;
+import org.jenkinsci.plugins.phabricator_branch_source.PhabricatorSCMSource;
 
+import javax.annotation.Nullable;
 import java.io.IOException;
 import java.util.ArrayList;
 
@@ -80,5 +85,32 @@ public class DiffusionClient {
             }
         }
         return diffusions;
+    }
+
+    public ArrayList<PhabricatorBranch> getBranches(String repository) throws IOException, ConduitAPIException {
+        ArrayList<PhabricatorBranch> branches = new ArrayList<>();
+
+        JSONObject params = new JSONObject();
+        params.element("closed", false);
+        params.element("repository", repository);
+
+        JSONObject branchesResponse = conduit.perform("diffusion.branchquery", params);
+        if(!branchesResponse.has("result")) {
+            return branches;
+        }
+
+        JSONArray openBranches = branchesResponse.getJSONArray("result");
+        int nrOpenBranches = openBranches.size();
+        Integer i = 0;
+        for (; i < nrOpenBranches; i++) {
+            JSONObject branch = openBranches.getJSONObject(i);
+            branches.add(
+                    new PhabricatorBranch(branch.getString("shortName"),
+                            branch.getString("commitIdentifier"),
+                            branch.getJSONObject("rawFields").getInt("epoch")
+                            )
+            );
+        }
+        return branches;
     }
 }
