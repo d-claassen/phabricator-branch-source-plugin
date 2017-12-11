@@ -5,6 +5,7 @@ import hudson.model.TaskListener;
 import jenkins.scm.api.SCMHead;
 import jenkins.scm.api.trait.SCMSourceRequest;
 import org.jenkinsci.plugins.phabricator_branch_source.Conduit.PhabricatorBranch;
+import org.jenkinsci.plugins.phabricator_branch_source.Conduit.PhabricatorRevision;
 
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
@@ -40,10 +41,9 @@ public class PhabricatorSCMSourceRequest extends SCMSourceRequest {
     private final String repository;
     /**
      * The pull request details or {@code null} if not {@link #isFetchRevisions()}.
-     * @TODO Iterable<PhabricatorRevision>?
      */
     @CheckForNull
-    private Iterable<DifferentialSCMHead> revisions;
+    private Iterable<PhabricatorRevision> revisions;
     /**
      * The branch details or {@code null} if not {@link #isFetchBranches()}.
      */
@@ -140,7 +140,7 @@ public class PhabricatorSCMSourceRequest extends SCMSourceRequest {
      *
      * @param revisions the revision details.
      */
-    public final void setRevisions(@CheckForNull Iterable<DifferentialSCMHead> revisions) {
+    public final void setRevisions(@CheckForNull Iterable<PhabricatorRevision> revisions) {
         this.revisions = revisions;
     }
 
@@ -151,7 +151,7 @@ public class PhabricatorSCMSourceRequest extends SCMSourceRequest {
      * @return the revision details (may be empty)
      */
     @Nonnull
-    public final Iterable<DifferentialSCMHead> getRevisions() {
+    public final Iterable<PhabricatorRevision> getRevisions() {
         return Util.fixNull(revisions);
     }
 

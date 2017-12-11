@@ -35,6 +35,7 @@ import net.sf.json.JSONObject;
 import org.jenkinsci.plugins.phabricator_branch_source.Conduit.Diffusion;
 import org.jenkinsci.plugins.phabricator_branch_source.Conduit.DiffusionClient;
 import org.jenkinsci.plugins.phabricator_branch_source.Conduit.PhabricatorBranch;
+import org.jenkinsci.plugins.phabricator_branch_source.Conduit.PhabricatorRevision;
 import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
@@ -152,18 +153,19 @@ public class PhabricatorSCMSource extends SCMSource {
             listener.getLogger().format("Connecting to %s with credentials%n", credentials().getUrl());
 
             // populate the request with its data sources
-//            if(request.isFetchRevisions()) {
-//                request.setRevisions(new LazyIterable<PhabricatorRevision>() {
-//                    @Override
-//                    protected Iterable<PhabricatorRevision> create() {
-//                        try {
-//                            return (Iterable<PhabricatorRevision>) buildClient().getRevisions();
-//                        } catch(IOException | InterruptedException e) {
-//                            throw new PhabricatorSCMSource.WrappedException(e);
-//                        }
-//                    }
-//                });
-//            }
+            if(request.isFetchRevisions()) {
+                request.setRevisions(new LazyIterable<PhabricatorRevision>() {
+                    @Override
+                    protected Iterable<PhabricatorRevision> create() {
+                        try {
+                            DiffusionClient diffusionClient = new DiffusionClient(buildClient());
+                            return diffusionClient.getRevisions(repository);
+                        } catch(IOException | ConduitAPIException e) {
+                            throw new PhabricatorSCMSource.WrappedException(e);
+                        }
+                    }
+                });
+            }
             if(request.isFetchBranches()) {
                 request.setBranches(new LazyIterable<PhabricatorBranch>() {
                     @Override
@@ -183,7 +185,7 @@ public class PhabricatorSCMSource extends SCMSource {
                 retrieveBranches(request);
             }
             if(request.isFetchRevisions() && !request.isComplete()) {
-//                retrieveRevisions(request);
+                retrieveDifferentialRevisions(request);
             }
         } catch (WrappedException e) {
             e.unwrap();
@@ -205,67 +207,41 @@ public class PhabricatorSCMSource extends SCMSource {
         String fullName = repository;
         request.listener().getLogger().println("Looking up " + fullName + " for branches");
 
+        String url;
         final ConduitAPIClient client = buildClient();
-
         try {
             DiffusionClient diffusionClient = new DiffusionClient(client);
             Diffusion diffusion = diffusionClient.getRepository(repository);
-            String url = diffusion.getPrimaryUrl();
-
-            request.listener().getLogger().format("Repo url: %s.%n", url);
-            request.listener().getLogger().format("Looking up all open branches.%n");
-
-            JSONObject params = new JSONObject();
-            params.element("closed", false);
-            params.element("repository", repository);
-
-            JSONObject branchesResponse = client.perform("diffusion.branchquery", params);
-            if(!branchesResponse.has("result")) {
-                request.listener().getLogger().format("Could not find any branches.%n");
-                return;
-            }
-
-            JSONArray openBranches = branchesResponse.getJSONArray("result");
-
-            int nrOpenBranches = openBranches.size();
-            request.listener().getLogger().format("Done. Found %s open branches.%n", nrOpenBranches);
-            Integer i = 0;
-            for (; i < nrOpenBranches; i++) {
-                String branchName = openBranches.getJSONObject(i).getString("shortName");
-//                String branchRef = openBranches.getJSONObject(i).getJSONObject("rawFields").getString("refname");
-                final String commitHash = openBranches.getJSONObject(i).getString("commitIdentifier");
-
-                request.listener().getLogger().format("Observe branch %s.%n", branchName);
-
-
-                SCMHead head = new BranchSCMHead(branchName, url);
-                if(request.process(head,
-                        new SCMSourceRequest.IntermediateLambda<String>() {
-                            @Nullable
-                            @Override
-                            public String create() {
-                                return commitHash;
-                            }
-                        },
-                        new PhabricatorProbeFactory(client, request),
-                        new PhabricatorRevisionFactory(),
-                        new CriteriaWitness(request)
-                )) {
-                    request.listener().getLogger().format("%n  %d branches were processed (query completed)%n", nrOpenBranches);
-                    break;
-                }
-
-//                SCMRevision revision = new AbstractGitSCMSource.SCMRevisionImpl(head, commitHash);
-
-//                observe(observer, request.listener(), head, revision);
-//                observe(observer, listener, repositoryUrl, branchName, branchRef, "", 0);
-            }
-            request.listener().getLogger().format("%n  %d branches were processed%n", i);
-
-        } catch(ConduitAPIException e) {
-            request.listener().getLogger().format("Error: %s%n", e.getMessage());
+            url = diffusion.getPrimaryUrl();
+        }
+        catch( ConduitAPIException e )
+        {
+            return;
         }
 
+        int count = 0;
+        for (final PhabricatorBranch branch : request.getBranches()) {
+            request.listener().getLogger().println("Checking branch " + branch.getName() + " from " + fullName);
+            count++;
+
+            SCMHead head = new BranchSCMHead(branch.getName(), url);
+            if(request.process(head,
+                    new SCMSourceRequest.IntermediateLambda<String>() {
+                        @Nullable
+                        @Override
+                        public String create() {
+                            return branch.getHash();
+                        }
+                    },
+                    new PhabricatorProbeFactory(client, request),
+                    new PhabricatorRevisionFactory(),
+                    new CriteriaWitness(request)
+            )) {
+                request.listener().getLogger().format("%n  %d branches were processed (query completed)%n", count);
+                break;
+            }
+        }
+        request.listener().getLogger().format("%n  %d branches were processed%n", count);
     }
 
     private void retrieveBranches(ConduitAPIClient client, @NonNull SCMHeadObserver observer, @NonNull TaskListener listener ) throws InterruptedException {
@@ -308,6 +284,11 @@ public class PhabricatorSCMSource extends SCMSource {
             listener.getLogger().format("Error: %s%n", e.getMessage());
         }
         listener.getLogger().println();
+    }
+
+    private void retrieveDifferentialRevisions(final PhabricatorSCMSourceRequest request) throws IOException, InterruptedException {
+        String fullName = repository;
+        request.listener().getLogger().println("Looking up " + fullName + " for revisions");
     }
 
     private void retrieveDifferentialRevisions(ConduitAPIClient client, @NonNull SCMHeadObserver observer, @NonNull TaskListener listener ) throws InterruptedException {
