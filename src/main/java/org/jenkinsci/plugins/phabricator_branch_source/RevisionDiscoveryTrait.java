@@ -1,10 +1,13 @@
 package org.jenkinsci.plugins.phabricator_branch_source;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
+import jenkins.scm.api.SCMHeadCategory;
 import jenkins.scm.api.SCMSource;
 import jenkins.scm.api.trait.SCMSourceContext;
 import jenkins.scm.api.trait.SCMSourceTrait;
 import jenkins.scm.api.trait.SCMSourceTraitDescriptor;
+import jenkins.scm.impl.ChangeRequestSCMHeadCategory;
 import jenkins.scm.impl.trait.Discovery;
 import org.kohsuke.stapler.DataBoundConstructor;
 
@@ -22,6 +25,14 @@ public class RevisionDiscoveryTrait extends SCMSourceTrait {
     protected void decorateContext(SCMSourceContext<?, ?> context) {
         PhabricatorSCMSourceContext ctx = (PhabricatorSCMSourceContext) context;
         ctx.wantRevisions(true);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public boolean includeCategory(@NonNull SCMHeadCategory category) {
+        return category instanceof ChangeRequestSCMHeadCategory;
     }
 
     /**

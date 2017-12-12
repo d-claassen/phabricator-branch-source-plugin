@@ -2,6 +2,8 @@ package org.jenkinsci.plugins.phabricator_branch_source.Conduit;
 
 import com.uber.jenkins.phabricator.conduit.ConduitAPIClient;
 import com.uber.jenkins.phabricator.conduit.ConduitAPIException;
+import hudson.model.TaskListener;
+import javafx.concurrent.Task;
 import jenkins.scm.api.SCMHead;
 import jenkins.scm.api.trait.SCMSourceRequest;
 import net.sf.json.JSONArray;
@@ -115,26 +117,34 @@ public class DiffusionClient {
         return branches;
     }
 
-    public ArrayList<PhabricatorRevision> getRevisions(String repository) throws IOException, ConduitAPIException {
+    public ArrayList<PhabricatorRevision> getRevisions(String repository, TaskListener listener) throws IOException, ConduitAPIException {
         ArrayList<PhabricatorRevision> revisions = new ArrayList<>();
 
-        JSONObject constraints = new JSONObject();
-        constraints.element("repositoryPHIDs", JSONArray.fromObject(repository));
-        ArrayList<String> statuses = new ArrayList<>();
+        JSONArray repositoryPHIDs = new JSONArray();
+        repositoryPHIDs.add(repository);
+
+        JSONArray statuses = new JSONArray();
         statuses.add("needs-revision");
         statuses.add("needs-review");
         statuses.add("changes-planned");
         statuses.add("published");
         statuses.add("draft");
-        constraints.element("statuses", JSONArray.fromObject(statuses));
+
+        JSONObject constraints = new JSONObject();
+        constraints.element("repositoryPHIDs", repositoryPHIDs);
+        constraints.element("statuses", statuses);
+
         JSONObject params = new JSONObject();
         params.element("constraints", constraints);
+
         JSONObject response = conduit.perform("differential.revision.search", params);
+
+//        listener.getLogger().format("%ndifferential.revision.search response:%n%s%n", response.toString(2, 2));
 
         if (response.has("result") && response.getJSONObject("result").has("data")) {
             JSONArray revisionsData = response.getJSONObject("result").getJSONArray("data");
 
-            for (int i = 0; i < revisions.size(); i++) {
+            for (int i = 0; i < revisionsData.size(); i++) {
                 JSONObject revision = revisionsData.getJSONObject(i);
                 JSONObject fields = revision.getJSONObject("fields");
 
@@ -144,6 +154,8 @@ public class DiffusionClient {
                 diffParams.element("revisionIDs", revisionIDs);
 
                 JSONObject diffResponse = conduit.perform("differential.querydiffs", diffParams);
+//                listener.getLogger().format("%ndifferential.querydiffs response:%n%s%n", diffResponse.toString(2, 2));
+
                 JSONObject diffs = diffResponse.getJSONObject("result");
                 if (diffs.size() > 0) {
                     Iterator<?> keys = diffs.keys();
@@ -186,7 +198,7 @@ public class DiffusionClient {
                                             diffRef.get("commit").toString(),
                                             baseRef.get("ref").toString(),
                                             revision.getInt("id"),
-                                            revision.getLong("dateCreated")
+                                            Long.parseLong(fields.getString("dateCreated"))
                                     )
                             );
                         }

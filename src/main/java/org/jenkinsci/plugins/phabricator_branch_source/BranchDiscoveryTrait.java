@@ -1,6 +1,8 @@
 package org.jenkinsci.plugins.phabricator_branch_source;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
+import jenkins.scm.api.SCMHeadCategory;
 import jenkins.scm.api.SCMSource;
 import jenkins.scm.api.trait.SCMSourceContext;
 import jenkins.scm.api.trait.SCMSourceTrait;
@@ -22,6 +24,14 @@ public class BranchDiscoveryTrait extends SCMSourceTrait {
     protected void decorateContext(SCMSourceContext<?, ?> context) {
         PhabricatorSCMSourceContext ctx = (PhabricatorSCMSourceContext) context;
         ctx.wantBranches(true);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public boolean includeCategory(@NonNull SCMHeadCategory category) {
+        return category.isUncategorized();
     }
 
     /**

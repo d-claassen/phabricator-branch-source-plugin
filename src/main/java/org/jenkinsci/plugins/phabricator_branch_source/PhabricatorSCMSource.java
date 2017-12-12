@@ -27,15 +27,15 @@ import jenkins.scm.api.*;
 import jenkins.scm.api.trait.SCMSourceRequest;
 import jenkins.scm.api.trait.SCMSourceTrait;
 import jenkins.scm.api.trait.SCMSourceTraitDescriptor;
+import jenkins.scm.impl.ChangeRequestSCMHeadCategory;
+import jenkins.scm.impl.UncategorizedSCMHeadCategory;
 import jenkins.scm.impl.form.NamedArrayList;
 import jenkins.scm.impl.trait.Discovery;
 import jenkins.scm.impl.trait.Selection;
+import jenkins.util.NonLocalizable;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
-import org.jenkinsci.plugins.phabricator_branch_source.Conduit.Diffusion;
-import org.jenkinsci.plugins.phabricator_branch_source.Conduit.DiffusionClient;
-import org.jenkinsci.plugins.phabricator_branch_source.Conduit.PhabricatorBranch;
-import org.jenkinsci.plugins.phabricator_branch_source.Conduit.PhabricatorRevision;
+import org.jenkinsci.plugins.phabricator_branch_source.Conduit.*;
 import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
@@ -143,7 +143,7 @@ public class PhabricatorSCMSource extends SCMSource {
     protected void retrieve(@CheckForNull SCMSourceCriteria criteria,
                             @NonNull SCMHeadObserver observer,
                             @CheckForNull SCMHeadEvent<?> event,
-                            @NonNull TaskListener listener)
+                            @NonNull final TaskListener listener)
             throws IOException, InterruptedException {
         listener.getLogger().format("Start retrieving now%n");
         try(PhabricatorSCMSourceRequest request = new PhabricatorSCMSourceContext(criteria, observer)
@@ -159,7 +159,7 @@ public class PhabricatorSCMSource extends SCMSource {
                     protected Iterable<PhabricatorRevision> create() {
                         try {
                             DiffusionClient diffusionClient = new DiffusionClient(buildClient());
-                            return diffusionClient.getRevisions(repository);
+                            return diffusionClient.getRevisions(repository, listener);
                         } catch(IOException | ConduitAPIException e) {
                             throw new PhabricatorSCMSource.WrappedException(e);
                         }
@@ -288,7 +288,62 @@ public class PhabricatorSCMSource extends SCMSource {
 
     private void retrieveDifferentialRevisions(final PhabricatorSCMSourceRequest request) throws IOException, InterruptedException {
         String fullName = repository;
-        request.listener().getLogger().println("Looking up " + fullName + " for revisions");
+        request.listener().getLogger().format("Looking up %s for revisions%n", fullName );
+
+        String url;
+        final ConduitAPIClient client = buildClient();
+        try {
+            DiffusionClient diffusionClient = new DiffusionClient(client);
+            Diffusion diffusion = diffusionClient.getRepository(repository);
+            url = diffusion.getPrimaryUrl();
+        }
+        catch( ConduitAPIException e )
+        {
+            return;
+        }
+
+        int count = 0;
+        int skipped = 0;
+        for (final PhabricatorRevision revision : request.getRevisions()) {
+            if(!(revision instanceof PhabricatorStagedRevision)) {
+                skipped++;
+                continue;
+            }
+            count++;
+            final PhabricatorStagedRevision stagedRevision = (PhabricatorStagedRevision) revision;
+
+
+            request.listener().getLogger().format("Repo url %s%n", stagedRevision.getRepositoryUrl());
+            request.listener().getLogger().format("Head name %s%n", stagedRevision.getName());
+            request.listener().getLogger().format("Branch %s%n", stagedRevision.getBranchName());
+            request.listener().getLogger().format("Base Branch %s%n", stagedRevision.getBaseBranchName());
+            request.listener().getLogger().format("Differential Revision id %s%n", stagedRevision.getRevisionId());
+
+            BranchSCMHead target = new BranchSCMHead("develop", url);
+
+            DifferentialSCMHead head = new DifferentialSCMHead(stagedRevision.getRepositoryUrl(),
+                    stagedRevision.getName(),
+                    stagedRevision.getBranchName(),
+                    stagedRevision.getBaseBranchName(),
+                    stagedRevision.getRevisionId(),
+                    target);
+            if(request.process(head,
+                    new SCMSourceRequest.IntermediateLambda<String>() {
+                        @Nullable
+                        @Override
+                        public String create() throws IOException, InterruptedException {
+                            return stagedRevision.getHash();
+                        }
+                    },
+                    new PhabricatorProbeFactory(buildClient(), request),
+                    new PhabricatorRevisionFactory(),
+                    new CriteriaWitness(request)
+            )) {
+                request.listener().getLogger().format("%n  %d revisions were processed (query completed)%n", count);
+                break;
+            }
+        }
+        request.listener().getLogger().format("%n  %d revisions were processed, %d were skipped%n", count, skipped);
     }
 
     private void retrieveDifferentialRevisions(ConduitAPIClient client, @NonNull SCMHeadObserver observer, @NonNull TaskListener listener ) throws InterruptedException {
@@ -412,7 +467,8 @@ public class PhabricatorSCMSource extends SCMSource {
         listener.getLogger().format("Branch %s%n", branchName);
         listener.getLogger().format("Base Branch %s%n", baseBranchName);
         listener.getLogger().format("Differential Revision id %s%n", revisionId);
-        DifferentialSCMHead head = new DifferentialSCMHead(repositoryUrl, name, branchName, baseBranchName, revisionId);
+        BranchSCMHead target = new BranchSCMHead(baseBranchName, repositoryUrl);
+        DifferentialSCMHead head = new DifferentialSCMHead(repositoryUrl, name, branchName, baseBranchName, revisionId, target);
         listener.getLogger().format("Hash %s%n", hash);
         SCMRevision revision = new AbstractGitSCMSource.SCMRevisionImpl(head, hash);
 
@@ -551,7 +607,6 @@ public class PhabricatorSCMSource extends SCMSource {
             return result;
         }
 
-
         public List<NamedArrayList<? extends SCMSourceTraitDescriptor>> getTraitsDescriptorLists() {
             List<SCMSourceTraitDescriptor> all = new ArrayList<>();
             // all that are applicable to our context
@@ -591,6 +646,16 @@ public class PhabricatorSCMSource extends SCMSource {
 //            }, true, result);
             NamedArrayList.select(all, "General", null, true, result, insertionPoint);
             return result;
+        }
+
+        @NonNull
+        @Override
+        protected SCMHeadCategory[] createCategories() {
+            return new SCMHeadCategory[]{
+                    new UncategorizedSCMHeadCategory(new NonLocalizable("Branches")),
+                    new ChangeRequestSCMHeadCategory(new NonLocalizable("Revisions"))
+                    // TODO add support for tags and maybe feature branch identification
+            };
         }
     }
 
