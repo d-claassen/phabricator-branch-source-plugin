@@ -7,7 +7,7 @@ import jenkins.scm.api.mixin.ChangeRequestSCMHead;
 /**
  * Created by claassen on 10-01-17.
  */
-public class DifferentialSCMHead extends SCMHead { //implements ChangeRequestSCMHead {
+public class DifferentialSCMHead extends SCMHead implements ChangeRequestSCMHead {
 
     private String repoUrl;
     private String branchName;
@@ -58,13 +58,13 @@ public class DifferentialSCMHead extends SCMHead { //implements ChangeRequestSCM
     }
 
     @NonNull
-//    @Override
+    @Override
     public String getId() {
         return revisionId.toString();
     }
 
     @NonNull
-//    @Override
+    @Override
     public SCMHead getTarget() {
         return target;
     }
