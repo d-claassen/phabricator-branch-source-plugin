@@ -23,6 +23,7 @@ import hudson.scm.SCM;
 import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 import jenkins.plugins.git.AbstractGitSCMSource;
+import jenkins.plugins.git.GitSCMBuilder;
 import jenkins.scm.api.*;
 import jenkins.scm.api.trait.SCMSourceRequest;
 import jenkins.scm.api.trait.SCMSourceTrait;
@@ -277,7 +278,7 @@ public class PhabricatorSCMSource extends SCMSource {
 
                 SCMRevision revision = new AbstractGitSCMSource.SCMRevisionImpl(head, commitHash);
 
-                observe(observer, listener, head, revision);
+//                observe(observer, listener, head, revision);
 //                observe(observer, listener, repositoryUrl, branchName, branchRef, "", 0);
             }
         } catch( IOException | ConduitAPIException e ) {
@@ -319,7 +320,7 @@ public class PhabricatorSCMSource extends SCMSource {
             request.listener().getLogger().format("Base Branch %s%n", stagedRevision.getBaseBranchName());
             request.listener().getLogger().format("Differential Revision id %s%n", stagedRevision.getRevisionId());
 
-            BranchSCMHead target = new BranchSCMHead("develop", url);
+            BranchSCMHead target = new BranchSCMHead(stagedRevision.getBaseBranchName(), stagedRevision.getRepositoryUrl());
 
             DifferentialSCMHead head = new DifferentialSCMHead(stagedRevision.getRepositoryUrl(),
                     stagedRevision.getName(),
@@ -433,8 +434,8 @@ public class PhabricatorSCMSource extends SCMSource {
                             }
 
                             if(baseRef != null && diffRef != null) {
-                                observe(observer, listener, diffRef.getJSONObject("remote").get("uri").toString(), diffRef.get("ref").toString(),
-                                        diffRef.get("commit").toString(), baseRef.get("ref").toString(), revision.getInt("id"));
+//                                observe(observer, listener, diffRef.getJSONObject("remote").get("uri").toString(), diffRef.get("ref").toString(),
+//                                        diffRef.get("commit").toString(), baseRef.get("ref").toString(), revision.getInt("id"));
 
                                 if (!observer.isObserving()) {
                                     return;
@@ -453,47 +454,55 @@ public class PhabricatorSCMSource extends SCMSource {
         listener.getLogger().format("%nDone examining repository%n");
     }
 
-    private void observe(SCMHeadObserver observer, TaskListener listener, SCMHead head, SCMRevision revision) throws IOException, InterruptedException {
-        listener.getLogger().format("%nStart observing now...%n");
+//    private void observe(SCMHeadObserver observer, TaskListener listener, SCMHead head, SCMRevision revision) throws IOException, InterruptedException {
+//        listener.getLogger().format("%nStart observing now...%n");
 
-        observer.observe(head, revision);
-    }
+//        observer.observe(head, revision);
+//    }
 
-    private void observe(SCMHeadObserver observer, TaskListener listener, String repositoryUrl, String branchName, String hash, String baseBranchName, @Nullable Integer revisionId) throws IOException, InterruptedException {
-        String name = revisionId == null ? branchName : "D" + revisionId;
+//    private void observe(SCMHeadObserver observer, TaskListener listener, String repositoryUrl, String branchName, String hash, String baseBranchName, @Nullable Integer revisionId) throws IOException, InterruptedException {
+//        String name = revisionId == null ? branchName : "D" + revisionId;
 
-        listener.getLogger().format("Repo url %s%n", repositoryUrl);
-        listener.getLogger().format("Head name %s%n", name);
-        listener.getLogger().format("Branch %s%n", branchName);
-        listener.getLogger().format("Base Branch %s%n", baseBranchName);
-        listener.getLogger().format("Differential Revision id %s%n", revisionId);
-        BranchSCMHead target = new BranchSCMHead(baseBranchName, repositoryUrl);
-        DifferentialSCMHead head = new DifferentialSCMHead(repositoryUrl, name, branchName, baseBranchName, revisionId, target);
-        listener.getLogger().format("Hash %s%n", hash);
-        SCMRevision revision = new AbstractGitSCMSource.SCMRevisionImpl(head, hash);
+//        listener.getLogger().format("Repo url %s%n", repositoryUrl);
+//        listener.getLogger().format("Head name %s%n", name);
+//        listener.getLogger().format("Branch %s%n", branchName);
+//        listener.getLogger().format("Base Branch %s%n", baseBranchName);
+//        listener.getLogger().format("Differential Revision id %s%n", revisionId);
+//        BranchSCMHead target = new BranchSCMHead(baseBranchName, repositoryUrl);
+//        DifferentialSCMHead head = new DifferentialSCMHead(repositoryUrl, name, branchName, baseBranchName, revisionId, target);
+//        listener.getLogger().format("Hash %s%n", hash);
+//        SCMRevision revision = new AbstractGitSCMSource.SCMRevisionImpl(head, hash);
 
-        observe(observer, listener, head, revision);
-    }
+//        observe(observer, listener, head, revision);
+//    }
 
     @Override
-    public SCM build(SCMHead head, SCMRevision revision) {
+    public SCM build(@Nonnull SCMHead head, SCMRevision revision) {
         // @todo if repo not git -> exception. won't handle yet.
         // Quite defensive. Should always be true.
         if(head instanceof DifferentialSCMHead) {
             DifferentialSCMHead h = (DifferentialSCMHead) head;
 
+            GitSCMBuilder builder = new GitSCMBuilder(h, revision, h.getRepoUrl(), repoCredentialsId);
+            builder.withRefSpecs(Collections.singletonList("+refs/tags/phabricator/*:refs/remotes/origin/tags/phabricator/*"));
+            builder.withRefSpecs(Collections.singletonList(h.getTagName()));
+//            builder.withExtension(new ChangelogToBranch(new ChangelogToBranchOptions(h.getBaseBranchRemoteName(), h.getBaseBranchTargetName())));
+//            builder.withRefSpecs(Collections.singletonList(new BranchSpec(h.getTagName())));
+            return builder.build();
+/*
             BuildChooser buildChooser = revision instanceof AbstractGitSCMSource.SCMRevisionImpl ? new AbstractGitSCMSource.SpecificRevisionBuildChooser(
                     (AbstractGitSCMSource.SCMRevisionImpl) revision) : new DefaultBuildChooser();
 
-            ArrayList<GitSCMExtension> extensions = new ArrayList<>();
             extensions.add(new BuildChooserSetting(buildChooser));
-            extensions.add(new ChangelogToBranch(new ChangelogToBranchOptions(h.getBaseBranchRemoteName(), h.getBaseBranchTargetName())));
             return new GitSCM(
                     getGitRemoteConfigs(h),
                     Collections.singletonList(new BranchSpec(h.getTagName())),
-                    false, Collections.<SubmoduleConfig>emptyList(),
-                    null, null,
+                    false,
+                    Collections.<SubmoduleConfig>emptyList(),
+                    null,
+                    null,
                     extensions);
+                    */
         } else if(head instanceof BranchSCMHead) {
             BranchSCMHead h = (BranchSCMHead) head;
 
@@ -596,6 +605,7 @@ public class PhabricatorSCMSource extends SCMSource {
             return result;
         }
 
+        @SuppressWarnings("unused")
         public ListBoxModel doFillRepoCredentialsIdItems(@AncestorInPath SCMSourceOwner context) {
             StandardListBoxModel result = new StandardListBoxModel();
             result.withEmptySelection();
