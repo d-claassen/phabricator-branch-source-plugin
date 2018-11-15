@@ -157,6 +157,7 @@ public class DiffusionClient {
 //                listener.getLogger().format("%ndifferential.querydiffs response:%n%s%n", diffResponse.toString(2, 2));
 
                 JSONObject diffs = diffResponse.getJSONObject("result");
+                // @TODO Don't build every diff! Just the newest diff!
                 if (diffs.size() > 0) {
                     Iterator<?> keys = diffs.keys();
                     while (keys.hasNext()) {

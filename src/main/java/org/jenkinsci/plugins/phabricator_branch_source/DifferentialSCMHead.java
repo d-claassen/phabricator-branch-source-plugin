@@ -57,6 +57,14 @@ public class DifferentialSCMHead extends SCMHead implements ChangeRequestSCMHead
         return branchName;
     }
 
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public String getPronoun() {
+        return "Revision";
+    }
+
     @NonNull
     @Override
     public String getId() {

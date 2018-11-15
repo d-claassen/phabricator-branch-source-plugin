@@ -206,7 +206,7 @@ public class PhabricatorSCMSource extends SCMSource {
 
     private void retrieveBranches(final PhabricatorSCMSourceRequest request) throws IOException, InterruptedException {
         String fullName = repository;
-        request.listener().getLogger().println("Looking up " + fullName + " for branches");
+        request.listener().getLogger().format("Looking up %s for branches%n", fullName);
 
         String url;
         final ConduitAPIClient client = buildClient();
@@ -244,7 +244,7 @@ public class PhabricatorSCMSource extends SCMSource {
         }
         request.listener().getLogger().format("%n  %d branches were processed%n", count);
     }
-
+/*
     private void retrieveBranches(ConduitAPIClient client, @NonNull SCMHeadObserver observer, @NonNull TaskListener listener ) throws InterruptedException {
         try {
             DiffusionClient diffusionClient = new DiffusionClient(client);
@@ -286,22 +286,23 @@ public class PhabricatorSCMSource extends SCMSource {
         }
         listener.getLogger().println();
     }
+*/
 
     private void retrieveDifferentialRevisions(final PhabricatorSCMSourceRequest request) throws IOException, InterruptedException {
         String fullName = repository;
         request.listener().getLogger().format("Looking up %s for revisions%n", fullName );
 
-        String url;
-        final ConduitAPIClient client = buildClient();
-        try {
-            DiffusionClient diffusionClient = new DiffusionClient(client);
-            Diffusion diffusion = diffusionClient.getRepository(repository);
-            url = diffusion.getPrimaryUrl();
-        }
-        catch( ConduitAPIException e )
-        {
-            return;
-        }
+//        String url;
+//        final ConduitAPIClient client = buildClient();
+//        try {
+//            DiffusionClient diffusionClient = new DiffusionClient(client);
+//            Diffusion diffusion = diffusionClient.getRepository(repository);
+//            url = diffusion.getPrimaryUrl();
+//        }
+//        catch( ConduitAPIException e )
+//        {
+//            return;
+//        }
 
         int count = 0;
         int skipped = 0;
@@ -716,7 +717,12 @@ public class PhabricatorSCMSource extends SCMSource {
         @Nonnull
         @Override
         public SCMRevision create(@Nonnull SCMHead head, @Nullable String hash) throws IOException, InterruptedException {
-            return new AbstractGitSCMSource.SCMRevisionImpl(head, hash);
+            if( head instanceof DifferentialSCMHead ) {
+                DifferentialSCMHead revision = (DifferentialSCMHead) head;
+                return new RevisionSCMRevision(revision, new AbstractGitSCMSource.SCMRevisionImpl(revision.getTarget(), hash));
+            } else {
+                return new AbstractGitSCMSource.SCMRevisionImpl(head, hash);
+            }
         }
     }
 
