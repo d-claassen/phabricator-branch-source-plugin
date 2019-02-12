@@ -1,20 +1,30 @@
-# Phabricator Branch Source plugin for Jenkins
+# Phabricator SCM plugin for Jenkins
 
 ## Introduction
 
-The Phabricator Branch Source plugin allows you to create a new project based on a repository that is available in a
-[Phabricator](https://www.phacility.com/phabricator/) instance. This plugin scans the repository for all branches
-and turns them into Pipeline jobs. To define a Pipeline job, you create a Pipeline script in a `Jenkinsfile` in the root
-directory of the project or branch. The repository becomes a folder in Jenkins with each branch with a `Jenkinsfile` as
-a different job.
+The Phabricator SCM plugin allows you to create a new project based on a repository that is available in a
+[Phabricator](https://www.phacility.com/phabricator/) instance. This plugin finds branches and revisions within the
+repository. When possible it turns those branches and revisions into
+[Pipeline jobs](https://jenkins.io/doc/book/pipeline/).
+
+To define a Pipeline job, you create a Pipeline script in a `Jenkinsfile` in the root directory of the project or
+branch. The repository becomes a folder in Jenkins with each branch or revision with a `Jenkinsfile` as
+a separate job.
 
 ### Differential Revisions
 
 The Phabricator Branch Source plugin is able to build
-[Differential revisions](https://www.phacility.com/phabricator/differential/) containing a `Jenkinsfile` and with
-their changes staged in a Staging Area. Each revision will be added to Jenkins as a unique job.
+[Differential revisions](https://www.phacility.com/phabricator/differential/) containing a `Jenkinsfile` only if
+their changes are staged in a Staging Area. Each revision will be added to Jenkins as a unique job.
 
-**This does not report the status of a build back to Phabricator.**
+Currently, applying Differential revisions that are not staged in a Staging Area have a lot of edge cases that are hard
+to cover. To apply Differential revisions that are not staged, you might want to have a look at the 
+[Phabricator-Jenkins plugin](https://github.com/uber/phabricator-jenkins-plugin).
+
+**Caution** This plugin does not report the status of a build back to Phabricator. For reporting to Phabricator from
+a Pipeline job, you could use the 
+[`PhabricatorNotifier` build step](https://github.com/uber/phabricator-jenkins-plugin/blob/master/docs/advanced.md#pipeline)
+from the Phabricator-Jenkins plugin.
 
 ## Configuration
 
